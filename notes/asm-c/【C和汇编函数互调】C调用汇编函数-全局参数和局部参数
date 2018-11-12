@@ -1,0 +1,361 @@
+
+extern void idt_flush(uint32_t,uint32_t);
+
+
+
+idt_flush((uint32_t)&idt_ptr, a);
+
+摘取代码：
+
+void init_idt()
+{   
+    idt_ptr.limit = sizeof(idt_entry_t) * 256 - 1;
+    idt_ptr.base  = (uint32_t)&idt_entries;
+    .....
+
+    uint32_t a = 3;
+    idt_flush((uint32_t)&idt_ptr, a);
+}
+
+
+
+摘取汇编代码：
+
+001013ba <init_idt>:
+  1013ba:       55                      push   %ebp
+  1013bb:       89 e5                   mov    %esp,%ebp
+  1013bd:       83 ec 28                sub    $0x28,%esp
+  
+  1013d4:       66 c7 05 40 c0 10 00    movw   $0x7ff,0x10c040
+  1013db:       ff 07
+  1013dd:       b8 60 c0 10 00          mov    $0x10c060,%eax
+  1013e2:       a3 42 c0 10 00          mov    %eax,0x10c042
+
+  1018bb:       e8 1d 00 00 00          call   1018dd <idt_set_gate>  
+  1018c0:       c7 45 f4 03 00 00 00    movl   $0x3,-0xc(%ebp)  临时变量存放 uint32_t a = 3;
+  1018c7:       b8 40 c0 10 00          mov    $0x10c040,%eax
+  1018cc:       8b 55 f4                mov    -0xc(%ebp),%edx
+  1018cf:       89 54 24 04             mov    %edx,0x4(%esp)
+  1018d3:       89 04 24                mov    %eax,(%esp)
+  1018d6:       e8 45 e7 ff ff          call   100020 <idt_flush>
+  1018db:       c9                      leave
+  1018dc:       c3                      ret
+
+
+00100020 <idt_flush>:
+  100020:       8b 44 24 04             mov    0x4(%esp),%eax
+  100024:       0f 01 18                lidtl  (%eax)
+  100027:       c3                      ret
+
+  
+idt_ptr的地址就是 0x10c040，那么 idt_flush((uint32_t)&idt_ptr); 的入参就是 0x10c040，
+
+
+---------
+
+分析 init_idt 代码：
+
+  1013d4:       66 c7 05 40 c0 10 00    movw   $0x7ff,0x10c040      0x10c040为ff, 0x10c041为07 这是idt_ptr.limit
+  1013db:       ff 07
+  1013dd:       b8 60 c0 10 00          mov    $0x10c060,%eax
+  1013e2:       a3 42 c0 10 00          mov    %eax,0x10c042        0x10c060赋给 0x10c042地址，也就是 idt_ptr.base
+
+这几行可以看到，对 idt_ptr进行了赋值操作
+对应 下面两行c代码
+    idt_ptr.limit = sizeof(idt_entry_t) * 256 - 1;      p/x sizeof(idt_entry_t) * 256 - 1 就是0x7ff
+    idt_ptr.base  = (uint32_t)&idt_entries;             p/x &idt_entries 就是0x10c060
+
+可以看到内存布局：
+
+(gdb) p/x &idt_ptr
+$3 = 0x10c040
+(gdb) p/x idt_ptr
+$4 = {limit = 0x7ff, base = 0x10c060}
+(gdb) x /6xb 0x10c040
+0x10c040 <idt_ptr>:     0xff    0x07    0x60    0xc0    0x10    0x00
+    
+此时idt_ptr赋值完毕
+
+
+  1018c0:       c7 45 f4 03 00 00 00    movl   $0x3,-0xc(%ebp)      uint32_t a = 3;
+  1018c7:       b8 40 c0 10 00          mov    $0x10c040,%eax
+  1018cc:       8b 55 f4                mov    -0xc(%ebp),%edx
+  1018cf:       89 54 24 04             mov    %edx,0x4(%esp)
+  1018d3:       89 04 24                mov    %eax,(%esp)
+  1018d6:       e8 45 e7 ff ff          call   100020 <idt_flush>
+  1018db:       c9                      leave
+  1018dc:       c3                      ret
+
+
+
+code-addr   reg     mem-addr    mem-value
+1018c0
+            ebp
+
+
+                    ebp - 0xc   0x3
+
+
+code-addr   reg     mem-addr    mem-value
+1018c7
+1018cc
+            ebp
+
+
+                    ebp - 0xc   0x3
+
+eax:0x10c040
+edx:0x3
+
+
+
+code-addr   reg     mem-addr    mem-value
+1018cf
+            ebp
+
+
+                    ebp-0xc     0x3
+
+                    
+                    
+            
+
+                    esp+0x4     0x3
+            esp     
+
+eax:0x10c040
+edx:0x3
+
+
+
+code-addr   reg     mem-addr    mem-value
+1018d3
+            ebp
+
+
+                    ebp-0xc     0x3
+
+                    
+                    
+            
+
+                    esp+0x4     0x3
+            esp     0x10c040            
+
+eax:0x10c040
+edx:0x3
+
+
+
+
+code-addr   reg     mem-addr    mem-value
+1018d6
+            ebp
+
+
+                    ebp-0xc     0x3
+
+                    
+                    
+            
+
+                    esp+0x8     0x3         esp在压入返回地址后，esp减4
+                    0x10c040    0xff            
+            esp                 1018db      call idt_flush后的返回地址
+
+eip:100020
+
+这样就开始执行idt_flush
+
+00100020 <idt_flush>:
+  100020:       8b 44 24 04             mov    0x4(%esp),%eax   此时esp+4 就是 0x10c040，就是 idt_ptr结构体起始地址，也是idt_flush的入参
+  100024:       0f 01 18                lidtl  (%eax)           这样就可以load idt_ptr，也就是将IDT的起始地址赋给了 idtr寄存器
+  100027:       c3                      ret                     这一句是 popl %eip，之前并没有使用leave指令！！！
+
+
+
+可以看到，init_idt 调用 idt_flush 的时候，
+idt_flush有入参，但是通过汇编代码可以看到 编译器并没有构造调用栈
+而是直接通过esp指向了入参地址，
+
+
+call idt_flush 调用后，此时会将返回地址push，esp会减4，
+然后eip会是 100020，此时转入 idt_flush 代码。
+
+执行idt_flush时，esp+4就是调用idt_flush前，esp的位置，也就是 idt_ptr的地址。
+此时 调用 lidtl就可以加载 中断表
+
+
+
+code-addr   reg     mem-addr    mem-value
+100020
+100024
+                    esp+0x8     0x3         esp在压入返回地址后，esp减4
+                    0x10c040    0xff            
+            esp                 1018db      call idt_flush后的返回地址
+
+            
+code-addr   reg     mem-addr    mem-value
+100027
+(popl %eip)
+                    esp+0x8     0x3         esp在压入返回地址后，esp减4
+            esp     0x10c040    0xff            
+                                1018db      call idt_flush后的返回地址    
+
+eip:1018db
+
+
+
+这样就返回了 init_idt函数中
+因为调用idt_flush时没有构造调用栈，那么返回后也不需要清理栈，就不需要leave指令
+
+
+
+
+返回init_idt函数后，此时是这样的
+  
+code-addr   reg     mem-addr    mem-value
+            ebp
+
+
+                    ebp-0xc     0x3
+
+                    
+                    
+            
+
+
+
+                    esp+0x8     0x3         esp在压入返回地址后，esp减4
+            esp     0x10c040    0xff            
+                                1018db      call idt_flush后的返回地址    
+
+ 
+继续执行
+  1018db:       c9                      leave
+  1018dc:       c3                      ret  
+  
+code-addr   reg     mem-addr    mem-value
+1018db
+(movl %ebp, %esp)
+
+            ebp/esp
+
+
+                    ebp-0xc     0x3
+
+                    
+                    
+            
+
+
+
+                    esp+0x8     0x3         【作废】esp在压入返回地址后，esp减4
+                    0x10c040    0xff        【作废】    
+                                1018db      【作废】call idt_flush后的返回地址      
+
+                                
+                                
+                                
+code-addr   reg     mem-addr    mem-value
+1018db
+(popl %ebp)
+            esp
+            [ebp/esp]
+
+
+                    ebp-0xc     0x3
+
+                    
+                    
+            
+
+
+
+                    esp+0x8     0x3         【作废】esp在压入返回地址后，esp减4
+                    0x10c040    0xff        【作废】    
+                                1018db      【作废】call idt_flush后的返回地址                                    
+                                
+                                
+ebp:已经是调用   init_idt 的函数的ebp了
+esp：+4                          
+                                
+
+                                
+                                
+code-addr   reg     mem-addr    mem-value
+1018dc
+(popl %eip)
+            esp
+            [ebp/esp]
+
+
+                    ebp-0xc     0x3
+
+                    
+                    
+            
+
+
+
+                    esp+0x8     0x3         【作废】esp在压入返回地址后，esp减4
+                    0x10c040    0xff        【作废】    
+                                1018db      【作废】call idt_flush后的返回地址                                        
+                                
+
+
+eip: init_idt 的调用函数的返回地址
+esp：+4
+
+【！！！】这个是标准的C调用C函数的返回方式
+
+这样，可以看到，临时变量a，在     init_idt函数返回后，被销毁了                          
+                                
+-----------------------
+
+这里还有一点，
+就是传入的第二个参数，a，
+这个参数在汇编函数中并没有被调用
+但是在idt_flush中，如果需要使用的话，可以通过 0x8(%esp) 的方式取得
+
+而且 在 init_idt函数返回后，栈回收，a被销毁了    
+
+
+
+
+【总结】
+调用时传入的参数，无论是全局的，还是调用者内部的，那么最后都会在调用call指令之前，压入栈中
+再压入调用后返回地址后，就可以调用汇编函数了
+调用完毕后，将返回地址pop到eip中，就可以返回了
+
+因为没有像c调用c函数那样进行：
+
+push   %ebp
+mov    %esp,%ebp
+sub    $0x18,%esp
+
+这样的调用栈的构造，所以在调用完汇编函数后，
+直接pop返回地址到eip，而不是用leave指令进行栈的清理
+
+
+
+leave指令：
+在AT&T汇编中，leave等效于以下汇编指令：
+movl %ebp, %esp
+popl %ebp        这两句都是为了恢复调用者的esp和ebp，也就是恢复调用者的堆栈
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
