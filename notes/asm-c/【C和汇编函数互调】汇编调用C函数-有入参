@@ -1,0 +1,740 @@
+00100028 <isr0>:
+  100028:       fa                      cli
+  100029:       6a 00                   push   $0x0
+  10002b:       6a 00                   push   $0x0
+  10002d:       e9 fc 00 00 00          jmp    10012e <isr_common_stub>
+
+00100078 <isr8>:
+  100078:       fa                      cli
+  100079:       6a 08                   push   $0x8
+  10007b:       e9 ae 00 00 00          jmp    10012e <isr_common_stub>  
+
+0010012e <isr_common_stub>:
+  10012e:       60                      pusha
+  10012f:       66 8c d8                mov    %ds,%ax
+  100132:       50                      push   %eax
+  100133:       66 b8 10 00             mov    $0x10,%ax
+  100137:       8e d8                   mov    %eax,%ds
+  100139:       8e c0                   mov    %eax,%es
+  10013b:       8e e0                   mov    %eax,%fs
+  10013d:       8e e8                   mov    %eax,%gs
+  10013f:       8e d0                   mov    %eax,%ss
+  100141:       54                      push   %esp
+  100142:       e8 ef 17 00 00          call   101936 <isr_handler>
+  100147:       83 c4 04                add    $0x4,%esp
+  10014a:       5b                      pop    %ebx
+  10014b:       8e db                   mov    %ebx,%ds
+  10014d:       8e c3                   mov    %ebx,%es
+  10014f:       8e e3                   mov    %ebx,%fs
+  100151:       8e eb                   mov    %ebx,%gs
+  100153:       8e d3                   mov    %ebx,%ss
+  100155:       61                      popa
+  100156:       83 c4 08                add    $0x8,%esp
+  100159:       cf                      iret
+
+
+
+
+开始执行时CPU要进行一个很关键的特权检验的过程，这个涉及到CPL、RPL和DPL的数值检验以及判断是否发生用户态到内核态的切换。
+如果发生了切换，还要涉及到TSS段和用户栈和内核栈的切换；
+确认无误后CPU开始保存当前被打断的程序的现场(即一些寄存器的值)，以便于将来恢复被打断的程序继续执行。
+这需要利用内核栈来保存相关现场信息，即依次压入当前被打断程序使用的eflags、cs、eip、以及错误代码号（如果当前中断有错误代码）；
+
+此时栈状态是：
+
+code-addr   reg     mem-addr    mem-value  
+
+                                SS
+                                ESP
+                                EFLAGS
+                                CS
+                                EIP
+                                ERROR-CODE
+                                INT-n
+
+
+INT 0 为例子  
+  
+code-addr   reg     mem-addr    mem-value  
+100029
+code-addr   reg     mem-addr    mem-value  
+
+                                SS
+                                ESP
+                                EFLAGS
+                                CS
+                                EIP     
+            esp                 0x0             push 无效的中断错误代码(起到占位作用，便于所有isr函数统一清栈)
+  
+  
+code-addr   reg     mem-addr    mem-value  
+10002b
+code-addr   reg     mem-addr    mem-value  
+
+                                SS
+                                ESP
+                                EFLAGS
+                                CS
+                                EIP     
+                                0x0             push 无效的中断错误代码(起到占位作用，便于所有isr函数统一清栈)
+            esp                 0x0             push 中断号
+
+
+顺序是：eax，ecx，edx，ebx，esp（压栈前的值），ebp，esi，edi。
+
+
+
+这些不需要时不再展示
+
+                                SS
+                                ESP
+                                EFLAGS
+                                CS
+                                EIP
+
+
+code-addr   reg     mem-addr    mem-value  
+10012e      
+                                0x0             push 无效的中断错误代码(起到占位作用，便于所有isr函数统一清栈)
+                                0x0             push 中断号
+                                eax
+                                ecx
+                                edx
+                                ebx
+                                esp
+                                ebp
+                                esi
+            esp                 edi
+                                
+
+??? esp 压入栈的值，到底是什么时刻的值？是eax入栈前的值，还是ebx入栈后的值
+
+
+code-addr   reg     mem-addr    mem-value  
+10012f
+100132  
+                                0x0             push 无效的中断错误代码(起到占位作用，便于所有isr函数统一清栈)
+                                0x0             push 中断号
+                                eax
+                                ecx
+                                edx
+                                ebx
+                                esp
+                                ebp
+                                esi
+                                edi
+            esp                 eax(ds)
+
+
+
+code-addr   reg     mem-addr    mem-value  
+100133
+...
+10013f  
+                                0x0             push 无效的中断错误代码(起到占位作用，便于所有isr函数统一清栈)
+                                0x0             push 中断号
+                                eax
+                                ecx
+                                edx
+                                ebx
+                                esp
+                                ebp
+                                esi
+                                edi
+            esp                 eax(ds)
+
+ax
+ds
+es
+fs
+gs
+ss  all is 0x10
+
+
+
+code-addr   reg     mem-addr    mem-value  
+100141
+                                0x0             push 无效的中断错误代码(起到占位作用，便于所有isr函数统一清栈)
+                                0x0             push 中断号
+                                eax
+                                ecx
+                                edx
+                                ebx
+                                esp
+                                ebp
+                                esi
+                                edi
+                                eax(ds)
+            esp                 esp             esp压入栈，eax(ds)的地址
+            
+ax
+ds
+es
+fs
+gs
+ss  all is 0x10
+
+
+
+
+  100142:       e8 ef 17 00 00          call   101936 <isr_handler>
+
+code-addr   reg     mem-addr    mem-value  
+100142
+                                0x0             push 无效的中断错误代码(起到占位作用，便于所有isr函数统一清栈)
+                                0x0             push 中断号
+                                eax
+                                ecx
+                                edx
+                                ebx
+                                esp
+                                ebp
+                                esi
+                                edi
+                                eax(ds)
+                                esp             esp压入栈，eax(ds)的地址
+            esp                 100147          压入isr_handler返回地址
+
+eip:101936
+
+00101936 <isr_handler>:
+  101936:       55                      push   %ebp
+  101937:       89 e5                   mov    %esp,%ebp
+  101939:       83 ec 18                sub    $0x18,%esp
+  10193c:       8b 45 08                mov    0x8(%ebp),%eax
+  10193f:       8b 40 24                mov    0x24(%eax),%eax
+  101942:       8b 04 85 60 c8 10 00    mov    0x10c860(,%eax,4),%eax
+  101949:       85 c0                   test   %eax,%eax
+  10194b:       74 17                   je     101964 <isr_handler+0x2e>
+  10194d:       8b 45 08                mov    0x8(%ebp),%eax
+  101950:       8b 40 24                mov    0x24(%eax),%eax
+  101953:       8b 04 85 60 c8 10 00    mov    0x10c860(,%eax,4),%eax
+  10195a:       8b 55 08                mov    0x8(%ebp),%edx
+  10195d:       89 14 24                mov    %edx,(%esp)
+  101960:       ff d0                   call   *%eax
+  101962:       eb 26                   jmp    10198a <isr_handler+0x54>
+  101964:       8b 45 08                mov    0x8(%ebp),%eax
+  101967:       8b 40 24                mov    0x24(%eax),%eax
+  10196a:       89 44 24 0c             mov    %eax,0xc(%esp)
+  10196e:       c7 44 24 08 b2 21 10    movl   $0x1021b2,0x8(%esp)
+  101975:       00
+  101976:       c7 44 24 04 01 00 00    movl   $0x1,0x4(%esp)
+  10197d:       00
+  10197e:       c7 04 24 00 00 00 00    movl   $0x0,(%esp)
+  101985:       e8 ac e8 ff ff          call   100236 <printk_color>
+  10198a:       c9                      leave
+  10198b:       c3                      ret
+
+
+    95: 0010c860  1024 OBJECT  GLOBAL DEFAULT    3 interrupt_handlers
+
+
+code-addr   reg     mem-addr    mem-value  
+101936
+101937
+101939
+                                0x0             push 无效的中断错误代码(起到占位作用，便于所有isr函数统一清栈)
+                                0x0             push 中断号
+                                eax
+                                ecx
+                                edx
+                                ebx
+                                esp
+                                ebp
+                                esi
+                                edi
+                                eax(ds)
+                                esp             esp压入栈，eax(ds)的地址
+                                100147          压入isr_handler返回地址
+            ebp                 ebp             isr_common_stub 的 ebp
+
+
+
+
+
+            esp                 
+
+
+
+
+
+
+  10193c:       8b 45 08                mov    0x8(%ebp),%eax
+  10193f:       8b 40 24                mov    0x24(%eax),%eax
+  101942:       8b 04 85 60 c8 10 00    mov    0x10c860(,%eax,4),%eax
+
+  10194d:       8b 45 08                mov    0x8(%ebp),%eax
+  101950:       8b 40 24                mov    0x24(%eax),%eax
+  101953:       8b 04 85 60 c8 10 00    mov    0x10c860(,%eax,4),%eax
+
+这两处的三行都是表示
+
+isr_handler(pt_regs *regs) 函数的 interrupt_handlers[regs->int_no] 语句的计算
+
+
+0x8(%ebp)   ebp + 0x8 是 （esp    esp压入栈，eax(ds)的地址） 这个，取值赋给eax，也就是将 eax(ds)的地址赋给 eax
+
+0x24(%eax)    0x24是36，也就是从 eax(ds) 向上数9个位置，也就是 0x0  push 中断号 这个，也就是将 中断号赋给 eax
+
+0x10c860(,%eax,4) = 0x10c860 + %eax * 4 = 0x10c860 + 中断号 * 4 = interrupt_handlers + 中断号 * 4
+ = interrupt_handlers[regs->int_no]     这个就是取到了中断号对应的中断服务例程，由register_interrupt_handler 注册
+ 
+
+
+  10195a:       8b 55 08                mov    0x8(%ebp),%edx
+  10195d:       89 14 24                mov    %edx,(%esp)              ！！！这一句不是edx的值赋给esp寄存器，而是edx的值赋给esp所指向的内存地址
+  101960:       ff d0                   call   *%eax
+  101962:       eb 26                   jmp    10198a <isr_handler+0x54>
+
+  10198a:       c9                      leave
+  10198b:       c3                      ret
+  
+0x8(%ebp)   ebp + 0x8 是 （esp    esp压入栈，eax(ds)的地址） 这个，取值赋给eax，也就是将 eax(ds)的地址赋给 edx， 再赋给esp
+
+
+code-addr   reg     mem-addr    mem-value  
+10195d
+                                0x0             push 无效的中断错误代码(起到占位作用，便于所有isr函数统一清栈)
+                                0x0             push 中断号
+                                eax
+                                ecx
+                                edx
+                                ebx
+                                esp
+                                ebp
+                                esi
+                                edi
+                                eax(ds)
+                                esp             esp压入栈，eax(ds)的地址
+                                100147          压入isr_handler返回地址
+            ebp                 ebp             isr_common_stub 的 ebp
+
+
+
+
+
+            esp                 eax(ds)的地址
+
+
+code-addr   reg     mem-addr    mem-value  
+101960
+                                0x0             push 无效的中断错误代码(起到占位作用，便于所有isr函数统一清栈)
+                                0x0             push 中断号
+                                eax
+                                ecx
+                                edx
+                                ebx
+                                esp
+                                ebp
+                                esi
+                                edi
+                                eax(ds)
+                                esp             esp压入栈，eax(ds)的地址
+                                100147          压入isr_handler返回地址
+            ebp                 ebp             isr_common_stub 的 ebp
+
+
+
+
+
+                                eax(ds)的地址
+            esp                 101962
+            
+            
+
+这样就可以执行 中断服务例程
+
+假设执行 timer_callback
+                    
+
+001013b9 <timer_callback>:
+  1013b9:       55                      push   %ebp
+  1013ba:       89 e5                   mov    %esp,%ebp
+  1013bc:       83 ec 18                sub    $0x18,%esp
+
+  1013ed:       c9                      leave
+  1013ee:       c3                      ret
+  
+
+
+code-addr   reg     mem-addr    mem-value  
+1013b9
+1013ba
+1013bc
+                                0x0             push 无效的中断错误代码(起到占位作用，便于所有isr函数统一清栈)
+                                0x0             push 中断号
+                                eax
+                                ecx
+                                edx
+                                ebx
+                                esp
+                                ebp
+                                esi
+                                edi
+                                eax(ds)
+                                esp             esp压入栈，eax(ds)的地址
+                                100147          压入isr_handler返回地址
+                                ebp             isr_common_stub 的 ebp
+
+
+
+
+
+                                eax(ds)的地址
+                                101962          压入timer_callback返回地址
+            ebp                 ebp             isr_handler 的 ebp
+
+
+
+
+
+            esp
+
+
+
+
+code-addr   reg     mem-addr    mem-value  
+1013ed
+(movl %ebp, %esp)
+(popl %ebp)
+                                0x0             push 无效的中断错误代码(起到占位作用，便于所有isr函数统一清栈)
+                                0x0             push 中断号
+                                eax
+                                ecx
+                                edx
+                                ebx
+                                esp
+                                ebp
+                                esi
+                                edi
+                                eax(ds)
+                                esp             esp压入栈，eax(ds)的地址
+                                100147          压入isr_handler返回地址
+            ebp                 ebp             isr_common_stub 的 ebp
+
+
+
+
+
+                                eax(ds)的地址
+            esp                 101962          压入timer_callback返回地址
+                                ebp             isr_handler 的 ebp
+
+
+
+code-addr   reg     mem-addr    mem-value  
+1013ee
+(popl %eip)
+                                0x0             push 无效的中断错误代码(起到占位作用，便于所有isr函数统一清栈)
+                                0x0             push 中断号
+                                eax
+                                ecx
+                                edx
+                                ebx
+                                esp
+                                ebp
+                                esi
+                                edi
+                                eax(ds)
+                                esp             esp压入栈，eax(ds)的地址
+                                100147          压入isr_handler返回地址
+            ebp                 ebp             isr_common_stub 的 ebp
+
+
+
+
+
+            esp                 eax(ds)的地址
+                                101962          压入timer_callback返回地址
+                                ebp             isr_handler 的 ebp
+
+eip:101962      
+
+  101962:       eb 26                   jmp    10198a <isr_handler+0x54>
+
+  10198a:       c9                      leave
+  10198b:       c3                      ret
+
+这样，就从 timer_callback中，返回到 isr_handler
+
+
+code-addr   reg     mem-addr    mem-value  
+10198a
+(movl %ebp, %esp)
+(popl %ebp)
+
+            ebp
+
+
+
+                                0x0             push 无效的中断错误代码(起到占位作用，便于所有isr函数统一清栈)
+                                0x0             push 中断号
+                                eax
+                                ecx
+                                edx
+                                ebx
+                                esp
+                                ebp
+                                esi
+                                edi
+                                eax(ds)
+                                esp             esp压入栈，eax(ds)的地址
+            esp                 100147          压入isr_handler返回地址
+                                ebp             isr_common_stub 的 ebp
+
+
+
+
+
+                                eax(ds)的地址
+                                101962          压入timer_callback返回地址
+                                ebp             isr_handler 的 ebp
+
+
+
+
+code-addr   reg     mem-addr    mem-value  
+10198b
+(popl %eip)
+
+            ebp
+
+
+
+                                0x0             push 无效的中断错误代码(起到占位作用，便于所有isr函数统一清栈)
+                                0x0             push 中断号
+                                eax
+                                ecx
+                                edx
+                                ebx
+                                esp
+                                ebp
+                                esi
+                                edi
+                                eax(ds)
+            esp                 esp             esp压入栈，eax(ds)的地址
+                                100147          压入isr_handler返回地址
+                                ebp             isr_common_stub 的 ebp
+
+
+
+
+
+                                eax(ds)的地址
+                                101962          压入timer_callback返回地址
+                                ebp             isr_handler 的 ebp
+
+eip:100147
+
+这样，就从 isr_handler中，返回到 isr_common_stub
+
+
+
+
+
+  
+  
+  101962:       eb 26                   jmp    10198a <isr_handler+0x54>
+
+  10198a:       c9                      leave
+  10198b:       c3                      ret
+
+
+  100142:       e8 ef 17 00 00          call   101936 <isr_handler>
+  100147:       83 c4 04                add    $0x4,%esp
+  10014a:       5b                      pop    %ebx
+  10014b:       8e db                   mov    %ebx,%ds
+  10014d:       8e c3                   mov    %ebx,%es
+  10014f:       8e e3                   mov    %ebx,%fs
+  100151:       8e eb                   mov    %ebx,%gs
+  100153:       8e d3                   mov    %ebx,%ss     开始恢复中断服务例程调用之前的栈
+  100155:       61                      popa
+  100156:       83 c4 08                add    $0x8,%esp
+  100159:       cf                      iret
+
+
+
+
+此时，栈是这样的：
+
+
+code-addr   reg     mem-addr    mem-value  
+
+
+            ebp
+
+
+
+                                0x0             push 无效的中断错误代码(起到占位作用，便于所有isr函数统一清栈)
+                                0x0             push 中断号
+                                eax
+                                ecx
+                                edx
+                                ebx
+                                esp
+                                ebp
+                                esi
+                                edi
+                                eax(ds)
+            esp                 esp             esp压入栈，eax(ds)的地址
+
+
+
+
+
+
+code-addr   reg     mem-addr    mem-value  
+100147
+
+            ebp
+
+
+
+                                0x0             push 无效的中断错误代码(起到占位作用，便于所有isr函数统一清栈)
+                                0x0             push 中断号
+                                eax
+                                ecx
+                                edx
+                                ebx
+                                esp
+                                ebp
+                                esi
+                                edi
+            esp                 eax(ds)
+                                esp             esp压入栈，eax(ds)的地址
+
+
+
+
+
+
+code-addr   reg     mem-addr    mem-value  
+10014a
+...
+100153
+
+            ebp
+
+
+
+                                0x0             push 无效的中断错误代码(起到占位作用，便于所有isr函数统一清栈)
+                                0x0             push 中断号
+                                eax
+                                ecx
+                                edx
+                                ebx
+                                esp
+                                ebp
+                                esi
+            esp                 edi
+                                eax(ds)
+                                esp             esp压入栈，eax(ds)的地址
+
+
+ebx:栈中的ds值
+ds
+es
+fs
+gs
+ss  栈中的ds值恢复到 这几个段寄存器中，与100137：10013f 对应
+
+
+
+
+
+POPAD  把EDI,ESI,EBP,ESP,EBX,EDX,ECX,EAX依次弹出堆栈.
+
+code-addr   reg     mem-addr    mem-value  
+100155
+
+            ebp
+
+            
+                                SS
+                                ESP
+                                EFlags
+                                CS
+                                EIP
+                                0x0             push 无效的中断错误代码(起到占位作用，便于所有isr函数统一清栈)
+            esp                 0x0             push 中断号
+                                eax
+                                ecx
+                                edx
+                                ebx
+                                esp
+                                ebp
+                                esi
+                                edi
+                                eax(ds)
+                                esp             esp压入栈，eax(ds)的地址
+
+                                
+                                
+  100156:       83 c4 08                add    $0x8,%esp
+  100159:       cf                      iret
+                                
+
+code-addr   reg     mem-addr    mem-value  
+100156
+
+            ebp
+
+
+                                SS
+                                ESP
+                                EFlags
+                                CS
+            esp                 EIP
+                                0x0             push 无效的中断错误代码(起到占位作用，便于所有isr函数统一清栈)
+                                0x0             push 中断号
+
+
+
+code-addr   reg     mem-addr    mem-value  
+100159
+
+            ebp
+
+
+            esp
+                                SS
+                                ESP
+                                EFlags
+                                CS
+                                EIP
+                                0x0             push 无效的中断错误代码(起到占位作用，便于所有isr函数统一清栈)
+                                0x0             push 中断号
+
+
+
+
+iret            
+对于实地址模式中断返回，IRET 指令从堆栈将返回指令指针、返回代码段选择器以及 EFLAGS 映像分别弹入 EIP、CS 以及 EFLAGS 寄存器，然后恢复执行中断的程序或过程。
+如果返回到另一个特权级别，则在恢复程序执行之前，IRET 指令还从堆栈弹出堆栈指针user-ESP与 堆栈段SS。           
+            
+            
+这样，通过 popa 和 iret，保存的寄存器都恢复了
+
+            
+到此，整个中断调用执行过程完毕         
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
