@@ -1,0 +1,178 @@
+
+
+【idt_flush 函数调用分析】
+
+
+(gdb) p/x sizeof(idt_entry_t) * 256 - 1
+$5 = 0x7ff
+(gdb) p/x &idt_entries
+$6 = 0x10c060
+
+(gdb) p/x idt_ptr
+$1 = {limit = 0x0, base = 0x0}
+(gdb) p/x &idt_ptr
+$2 = 0x10c040
+(gdb) n
+(gdb)
+(gdb)
+(gdb) p/x &idt_ptr
+$3 = 0x10c040
+(gdb) p/x idt_ptr
+$4 = {limit = 0x7ff, base = 0x10c060}
+(gdb) x /6xb
+0x10c046:       0x00    0x00    0x00    0x00    0x00    0x00
+(gdb) x /6xb 0x10c040
+0x10c040 <idt_ptr>:     0xff    0x07    0x60    0xc0    0x10    0x00
+
+
+
+
+
+idt_flush((uint32_t)&idt_ptr);
+
+摘取代码：
+
+void init_idt()
+{   
+    idt_ptr.limit = sizeof(idt_entry_t) * 256 - 1;
+    idt_ptr.base  = (uint32_t)&idt_entries;
+    .....
+
+    idt_flush((uint32_t)&idt_ptr);
+}
+
+摘取汇编代码：
+
+
+
+001013ba <init_idt>:  
+  
+  1013d4:       66 c7 05 40 c0 10 00    movw   $0x7ff,0x10c040
+  1013db:       ff 07
+  1013dd:       b8 60 c0 10 00          mov    $0x10c060,%eax
+  1013e2:       a3 42 c0 10 00          mov    %eax,0x10c042
+  
+  1018bb:       e8 0f 00 00 00          call   1018cf <idt_set_gate>
+  1018c0:       b8 40 c0 10 00          mov    $0x10c040,%eax
+  1018c5:       89 04 24                mov    %eax,(%esp)
+  1018c8:       e8 53 e7 ff ff          call   100020 <idt_flush>
+  1018cd:       c9                      leave
+  1018ce:       c3                      ret
+
+
+00100020 <idt_flush>:
+  100020:       8b 44 24 04             mov    0x4(%esp),%eax
+  100024:       0f 01 18                lidtl  (%eax)
+  100027:       c3                      ret
+
+
+  
+gdb运行打印：
+
+(gdb) p/x idt_ptr
+$1 = {limit = 0x0, base = 0x0}
+(gdb) p/x &idt_ptr
+$2 = 0x10c040
+
+可以看到 idt_ptr的地址就是 0x10c040，那么 idt_flush((uint32_t)&idt_ptr); 的入参就是 0x10c040，
+
+---------
+
+分析 init_idt 代码：
+
+  1013d4:       66 c7 05 40 c0 10 00    movw   $0x7ff,0x10c040      0x10c040为ff, 0x10c041为07 这是idt_ptr.limit
+  1013db:       ff 07
+  1013dd:       b8 60 c0 10 00          mov    $0x10c060,%eax
+  1013e2:       a3 42 c0 10 00          mov    %eax,0x10c042        0x10c060赋给 0x10c042地址，也就是 idt_ptr.base
+
+这几行可以看到，对 idt_ptr进行了赋值操作
+对应 下面两行c代码
+    idt_ptr.limit = sizeof(idt_entry_t) * 256 - 1;      p/x sizeof(idt_entry_t) * 256 - 1 就是0x7ff
+    idt_ptr.base  = (uint32_t)&idt_entries;             p/x &idt_entries 就是0x10c060
+
+可以看到内存布局：
+
+(gdb) p/x &idt_ptr
+$3 = 0x10c040
+(gdb) p/x idt_ptr
+$4 = {limit = 0x7ff, base = 0x10c060}
+(gdb) x /6xb 0x10c040
+0x10c040 <idt_ptr>:     0xff    0x07    0x60    0xc0    0x10    0x00
+
+此时idt_ptr赋值完毕
+
+
+  1018c0:       b8 40 c0 10 00          mov    $0x10c040,%eax
+  1018c5:       89 04 24                mov    %eax,(%esp)          esp此时就是 0x10c040，也就是指向 idt_ptr
+  1018c8:       e8 53 e7 ff ff          call   100020 <idt_flush>
+
+
+code-addr   reg     mem-addr    mem-value
+1018c5
+            esp     0x10c040    0xff
+    
+
+    
+code-addr   reg     mem-addr    mem-value
+1018c8
+                    0x10c040    0xff    
+            esp     0x10c03C    1018cd      call idt_flush后的返回地址
+
+eip:100020
+    
+
+这样就开始执行idt_flush
+
+00100020 <idt_flush>:
+  100020:       8b 44 24 04             mov    0x4(%esp),%eax   此时esp   是0x10c03C，esp+4 就是 0x10c040，就是 idt_ptr结构体起始地址，也是idt_flush的入参
+  100024:       0f 01 18                lidtl  (%eax)           这样就可以load idt_ptr，也就是将IDT的起始地址赋给了 idtr寄存器
+  100027:       c3                      ret                     这一句是 popl %eip，之前并没有使用leave指令！！！
+
+
+可以看到，init_idt 调用 idt_flush 的时候，
+idt_flush有入参，但是通过汇编代码可以看到 编译器并没有构造调用栈
+而是直接通过esp指向了入参地址，
+
+
+call idt_flush 调用后，此时会将返回地址push，esp会减4，
+然后eip会是 100020，此时转入 idt_flush 代码。
+
+执行idt_flush时，esp+4就是调用idt_flush前，esp的位置，也就是 idt_ptr的地址。
+此时 调用 lidtl就可以加载 中断表
+
+
+code-addr   reg     mem-addr    mem-value
+100020
+100024
+                    0x10c040    0xff    
+            esp     0x10c03C    1018cd      call idt_flush后的返回地址
+
+            
+code-addr   reg     mem-addr    mem-value
+100027
+(popl %eip)
+            esp     0x10c040    0xff    
+                    0x10c03C    1018cd      call idt_flush后的返回地址            
+
+eip:1018cd
+
+这样就返回了 init_idt函数中
+因为调用idt_flush时没有构造调用栈，那么返回后也不需要清理栈，就不需要leave指令
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
