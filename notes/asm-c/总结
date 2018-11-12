@@ -1,0 +1,154 @@
+
+
+（1）C调用汇编函数时，不需要构造调用栈      
+所以调用完毕后，不需要使用汇编指令 leave进行 调用者 调用前 的栈
+
+入参在调用前布局好，在返回地址的栈位置上方
+
+  1018d3:       89 04 24                mov    %eax,(%esp)
+  1018d6:       e8 45 e7 ff ff          call   100020 <idt_flush>
+  1018db:       c9                      leave
+  1018dc:       c3                      ret
+
+
+00100020 <idt_flush>:
+  100020:       8b 44 24 04             mov    0x4(%esp),%eax
+  100024:       0f 01 18                lidtl  (%eax)
+  100027:       c3                      ret
+
+  
+（2）汇编调用汇编函数  ，不需要构造调用栈     
+所以调用完毕后，不需要使用汇编指令 leave进行 调用者 调用前 的栈 
+
+使用jmp进行跳转
+
+isr0调用isr_common_stub
+
+
+00100028 <isr0>:
+  100028:       fa                      cli
+  100029:       6a 00                   push   $0x0
+  10002b:       6a 00                   push   $0x0
+  10002d:       e9 fc 00 00 00          jmp    10012e <isr_common_stub>
+
+
+
+0010012e <isr_common_stub>:
+  10012e:       60                      pusha
+  10012f:       66 8c d8                mov    %ds,%ax
+  100132:       50                      push   %eax
+
+  100159:       cf                      iret  
+  
+
+
+或者：
+
+gdt_flush:
+	mov eax, [esp+4]  ; 参数存入 eax 寄存器
+	lgdt [eax]        ; 加载到 GDTR [修改原先GRUB设置]
+.....
+	jmp 0x08:.flush   ; 远跳转，0x08是我们的代码段描述符
+			  ; 远跳目的是清空流水线并串行化处理器
+.flush:
+	ret
+
+  
+  
+（3）C调用C函数时，需要构造调用栈
+调用完毕后，需要使用汇编指令 leave进行 调用者 调用前 的栈
+
+
+使用 call
+
+
+入参在调用前布局好，在返回地址的栈位置上方
+
+
+（4）汇编调用C函数，需要构造调用栈
+调用完毕后，需要使用汇编指令 leave进行 调用者 调用前 的栈
+
+使用 call
+
+
+入参在调用前布局好，在返回地址的栈位置上方
+
+
+0010012e <isr_common_stub>:
+
+  100142:       e8 ef 17 00 00          call   101936 <isr_handler>
+
+00101936 <isr_handler>:
+  101936:       55                      push   %ebp
+  101937:       89 e5                   mov    %esp,%ebp
+  101939:       83 ec 18                sub    $0x18,%esp
+
+  10198a:       c9                      leave
+  10198b:       c3                      ret
+
+
+  
+【总结】
+
+相同：
+（1）入参均是在调用 被调函数 之前，已经在栈中布局好，在 调用返回地址 的 栈位置 上方
+
+通过最新的ebp往上放 偏移位置，可以读到布局的入参
+
+001013ba <init_idt>:
+
+  10189b:       b8 24 01 10 00          mov    $0x100124,%eax
+  1018a0:       c7 44 24 0c 8e 00 00    movl   $0x8e,0xc(%esp)
+  1018a7:       00
+  1018a8:       c7 44 24 08 08 00 00    movl   $0x8,0x8(%esp)
+  1018af:       00
+  1018b0:       89 44 24 04             mov    %eax,0x4(%esp)
+  1018b4:       c7 04 24 ff 00 00 00    movl   $0xff,(%esp)
+  1018bb:       e8 0f 00 00 00          call   1018cf <idt_set_gate>
+  1018c0:       b8 40 c0 10 00          mov    $0x10c040,%eax
+
+
+001018cf <idt_set_gate>:
+  1018cf:       55                      push   %ebp
+  1018d0:       89 e5                   mov    %esp,%ebp
+  1018d2:       83 ec 0c                sub    $0xc,%esp
+  1018d5:       8b 4d 08                mov    0x8(%ebp),%ecx		0xff
+  1018d8:       8b 55 10                mov    0x10(%ebp),%edx		0x8
+  1018db:       8b 45 14                mov    0x14(%ebp),%eax		0x8e
+  
+  1018ec:       8b 55 0c                mov    0xc(%ebp),%edx		isr255
+
+static void idt_set_gate(uint8_t num, uint32_t base, uint16_t sel, uint8_t flags)  
+ 
+
+idt_set_gate(255, (uint32_t)isr255, 0x08, 0x8E); 调用时，进入该函数后的栈布局
+ 
+code-addr	reg		mem-addr	mem-value  
+  
+  
+								0x8e
+								0x8
+								0x100124		：isr255
+								0xff
+								1018c0
+			ebp		
+  
+  
+  
+			esp
+  
+  
+（2）  均使用 ret/iret等从被调用函数中返回，
+  
+  
+  
+不同：
+（1）汇编调用汇编函数，使用jmp进行跳转
+其余三种使用 call跳转，需要跳转前压入 返回地址  
+
+
+（2）  调用汇编函数时，不需要构造调用栈      
+所以调用完毕后，不需要使用汇编指令 leave进行 调用者 调用前 的栈
+
+调用C函数时，需要构造调用栈
+调用完毕后，需要使用汇编指令 leave进行 调用者 调用前 的栈
