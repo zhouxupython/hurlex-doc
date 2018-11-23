@@ -1,0 +1,27 @@
+5. 代码中 pgd_kern 和 pte_kern，均记录的是 物理空间的地址  可否改造成 pgd_kern 记录虚拟空间的地址 ，pte_kern 依然记录物理空间的地址
+6. map函数，对pte指针进行了判空，可否改造成 空时去触发 int 0x14，然后再提前注册的int 0x14的中断处理程序中去申请新的物理页，然后回到原来的逻辑中再进行和虚拟地址的映射
+7. 内核线程扩展
+
+【bean-lee】
+pdf & 代码运行
+代码分析     fileview    dram
+fileview 使用、改造，能否与hurlex结合起来
+ko 驱动开发
+fileview可以改造成c++代码实现拼接，c的看得头晕   ？？？可以吗 c++ ？
+
+再运行一个mem_map，会对内存造成什么影响，看看这俩 tmp 地址一样吗？其他的输出值一样吗？？？俩tmp的地址，一样吗
+gdtr中的值是一样的，进程切换时，改变的是cr3的值，但是gdtr不改变，gdt就一份
+
+
+其他使用fileview的场景，进一步深入了解 内存布局&进程内存
+
+或者将fileview改造成自动计算出来 地址转换后的物理地址，及其内存值，不再手动运算了，比较麻烦
+
+mknod /dev/phy_mem c 85 0
+
+./fileview /dev/phy_mem
+
+进程装载时的随机。。。。
+http://blog.chinaunix.net/uid-23069658-id-3959636.html?page=2
+https://blog.csdn.net/counsellor/article/details/81543197
+
