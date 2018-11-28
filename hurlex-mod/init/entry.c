@@ -106,17 +106,24 @@ int thread(void *arg)
 */
 
 int flag = 0;
-int run_flag = 1;
+//int run_flag = 1;
+int run_flag1 = 1;
+int run_flag2 = 1;
+
+int cancel_flag = 0;
 
 char* str = "T";
 char* str2 = "P";
 
 int thread(void *arg)
 {
-	while (run_flag && 1) {
+	while (run_flag1 && 1) {
 		if (flag == 1) {
 			printk_color(rc_black, rc_green, (char*)arg);
-			flag = 2;
+			if(!cancel_flag)
+				flag = 2;
+			else
+				flag = 0;
 		}
 	}
 	printk_color(rc_black, rc_green, "thread1 quit\n");
@@ -125,7 +132,7 @@ int thread(void *arg)
 
 int thread2(void *arg)
 {
-	while (run_flag && 1) {
+	while (run_flag2 && 1) {
 		if (flag == 2) {
 			printk_color(rc_black, rc_white, (char*)arg);
 			flag = 0;
@@ -161,25 +168,35 @@ void kern_init()
 	init_sched();
 
 	kernel_thread(thread, str);
-    	kernel_thread(thread2, str2);
+    kernel_thread(thread2, str2);
 
 	// 开启中断
 	enable_intr();
 	
-    	static int cnt = 0;
+    static int cnt = 0;
 	while (1) {
-            if(cnt > 100) {
-                printk_color(rc_black, rc_light_cyan, "count enough!!! quit sub thread\n");
+		if(cnt == 100) {
+			printk_color(rc_black, rc_light_cyan, "100 count enough!!! quit sub thread1\n");
 
-            	run_flag = 0;
-		break;
-            }
-	    else if (flag == 0) {
-               printk_color(rc_black, rc_red, "A");
-	       flag = 1;
+			run_flag1 = 0;
+			break;
+		}
+		else if(cnt == 50) {
+            printk_color(rc_black, rc_light_cyan, "50 count enough!!! quit sub thread2\n");
 
-               cnt++;
-            }
+            run_flag2 = 0;
+            cancel_flag = 1;
+		    //break;
+        }
+
+	    if (flag == 0) {
+            printk_color(rc_black, rc_red, "A");
+	        flag = 1;
+
+            cnt++;
+        }
+
+		//cnt++;
 	}
 
 	printk_color(rc_black, rc_red, "will hlt\n");
