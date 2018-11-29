@@ -61,7 +61,7 @@ struct task_struct {
 extern pid_t now_pid;
 
 // 内核线程创建
-int32_t kernel_thread(int (*fn)(void *), void *arg);
+int32_t kernel_thread_create(int (*fn)(void *), void *arg);
 
 // 线程退出函数
 void kthread_exit(pid_t pid);

@@ -66,19 +66,19 @@
 #define OFFSET_INDEX(x) ((x) & 0xFFF)
 
 // 页目录数据类型
-typedef uint32_t pgd_t;
+typedef uint32_t pgd_t;//页目录项数据类型
 
 // 页表数据类型
-typedef uint32_t pte_t;
+typedef uint32_t pte_t;//页表项数据类型
 
 // 页表成员数
-#define PGD_SIZE (PAGE_SIZE/sizeof(pte_t))
+#define PGD_SIZE (PAGE_SIZE/sizeof(pte_t))//??? (PAGE_SIZE/sizeof(pgd_t)) 一页内存所能存储的页目录项成员数
 
 // 页表成员数
-#define PTE_SIZE (PAGE_SIZE/sizeof(uint32_t))
+#define PTE_SIZE (PAGE_SIZE/sizeof(uint32_t))//??? (PAGE_SIZE/sizeof(pte_t)) 一页内存所能存储的页表项成员数
 
 // 映射 512MB 内存所需要的页表数
-#define PTE_COUNT 128
+#define PTE_COUNT 128// 映射 512MB 内存所需要的页目录项 数  (10 10 12时，一个页目录项对应的是4G/2^10，也就是4M，那么512/4=128)
 
 // 内核页目录区域
 extern pgd_t pgd_kern[PGD_SIZE];

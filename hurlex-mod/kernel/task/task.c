@@ -29,7 +29,7 @@
 pid_t now_pid = 0;
 
 // 内核线程创建
-int32_t kernel_thread(int (*fn)(void *), void *arg)
+int32_t kernel_thread_create(int (*fn)(void *), void *arg)
 {
 	struct task_struct *new_task = (struct task_struct *)kmalloc(STACK_SIZE);
 	assert(new_task != NULL, "kern_thread: kmalloc error");
@@ -44,8 +44,8 @@ int32_t kernel_thread(int (*fn)(void *), void *arg)
 
 	uint32_t *stack_top = (uint32_t *)((uint32_t)new_task + STACK_SIZE);
 
-	printk("sizeof(int32_t): %d\n", sizeof(int32_t));
-	printk("sizeof(uint32_t): %d\n", sizeof(uint32_t));
+	//printk("sizeof(int32_t): %d\n", sizeof(int32_t));
+	//printk("sizeof(uint32_t): %d\n", sizeof(uint32_t));
 
 	*(--stack_top) = (int32_t)new_task->pid;
 	*(--stack_top) = (uint32_t)arg;
@@ -56,8 +56,7 @@ int32_t kernel_thread(int (*fn)(void *), void *arg)
 
 	// 设置新任务的标志寄存器未屏蔽中断，很重要
 	new_task->context.eflags = 0x200;
-	new_task->next = running_proc_head;
-	
+
 	// 找到当前进任务队列，插入到末尾
 	struct task_struct *tail = running_proc_head;
 	assert(tail != NULL, "Must init sched!");
@@ -66,6 +65,8 @@ int32_t kernel_thread(int (*fn)(void *), void *arg)
 		tail = tail->next;
 	}
 	tail->next = new_task;
+
+	new_task->next = running_proc_head;//????????? 这个新的task指向第一个task，构成循环链表，这样多个task就可以交替sched了
 
 	return new_task->pid;
 }

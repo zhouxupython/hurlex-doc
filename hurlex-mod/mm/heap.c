@@ -57,6 +57,7 @@ void *kmalloc(uint32_t len)
 			// 按照当前长度切割内存
 			split_chunk(cur_header, len);
 			cur_header->allocated = 1;
+			cur_header->length = len;
 			// 返回的时候必须将指针挪到管理结构之后
 			return (void *)((uint32_t)cur_header + sizeof(header_t));
 		}
@@ -69,9 +70,9 @@ void *kmalloc(uint32_t len)
 
 	// 第一次执行该函数则初始化内存块起始位置
 	// 之后根据当前指针加上申请的长度即可
-	if (prev_header) {
+	if (prev_header) {//这是当前的最后一个，从这个最后开始作为本次kmalloc的申请到的区域
 		chunk_start = (uint32_t)prev_header + prev_header->length;
-	} else {
+	} else {//说明之前没有申请过区域，或者申请的都已经释放了，从HEAP_START处开始作为本次kmalloc的申请到的区域
 		chunk_start = HEAP_START;
 		heap_first = (header_t *)chunk_start;
 	}
@@ -112,6 +113,26 @@ void alloc_chunk(uint32_t start, uint32_t len)
 	}
 }
 
+void split_chunk(header_t *chunk, uint32_t len)
+{
+	// 切分内存块之前得保证之后的剩余内存至少容纳一个内存管理块的大小
+	if (chunk->length - len > sizeof (header_t)) {
+		header_t *newchunk = (header_t *)((uint32_t)chunk + len);
+		newchunk->prev = chunk;
+		newchunk->next = chunk->next;
+		newchunk->allocated = 0;
+		newchunk->length = chunk->length - len;
+
+		if(chunk->next)
+		{
+			chunk->next->prev = newchunk;
+		}
+
+		chunk->next = newchunk;
+		//chunk->length = len;
+	}
+}
+
 void free_chunk(header_t *chunk)
 {
 	if (chunk->prev == 0) {
@@ -126,22 +147,7 @@ void free_chunk(header_t *chunk)
 		uint32_t page;
 		get_mapping(pgd_kern, heap_max, &page);
 		unmap(pgd_kern, heap_max);
-		pmm_free_page(page);
-	}
-}
-
-void split_chunk(header_t *chunk, uint32_t len)
-{
-	// 切分内存块之前得保证之后的剩余内存至少容纳一个内存管理块的大小
-	if (chunk->length - len > sizeof (header_t)) {
-		header_t *newchunk = (header_t *)((uint32_t)chunk + len);
-		newchunk->prev = chunk;
-		newchunk->next = chunk->next;
-		newchunk->allocated = 0;
-		newchunk->length = chunk->length - len;
-
-		chunk->next = newchunk;
-		chunk->length = len;
+		pmm_free_page(page);//注意这三行代码的顺序，不能乱
 	}
 }
 
@@ -163,10 +169,11 @@ void glue_chunk(header_t *chunk)
 		if (chunk->next) {
 			chunk->next->prev = chunk->prev;
 		}
-		chunk = chunk->prev;
+		chunk = chunk->prev;//chunk被合并了，那么chunk之前的块作为chunk
 	}
 
 	// 假如该内存后面没有链表内存块了直接释放掉
+	// 只有此处调用了free_chunk，后面没有申请的内存块了，全部释放掉
 	if (chunk->next == 0) {
 		free_chunk(chunk);
 	}

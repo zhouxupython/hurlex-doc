@@ -54,12 +54,14 @@ __attribute__((section(".init.text"))) void kern_entry()
 	pgd_tmp[PGD_INDEX(PAGE_OFFSET)] = (uint32_t)pte_hign | PAGE_PRESENT | PAGE_WRITE;
 
 	// 映射内核虚拟地址 4MB 到物理地址的前 4MB
+	// 映射 内核虚拟地址 0x00000000-0x00400000  到 0x00000000-0x00400000 的物理地址
 	int i;
 	for (i = 0; i < 1024; i++) {
 		pte_low[i] = (i << 12) | PAGE_PRESENT | PAGE_WRITE;
 	}
 
 	// 映射 0x00000000-0x00400000 的物理地址到虚拟地址 0xC0000000-0xC0400000
+	// 映射 内核虚拟地址 0xC0000000-0xC0400000 到 0x00000000-0x00400000 的物理地址
 	for (i = 0; i < 1024; i++) {
 		pte_hign[i] = (i << 12) | PAGE_PRESENT | PAGE_WRITE;
 	}
@@ -110,19 +112,20 @@ int flag = 0;
 int run_flag1 = 1;
 int run_flag2 = 1;
 
-int cancel_flag = 0;
+int cancel_flag1 = 0;
+int cancel_flag2 = 0;
 
 char* str = "T";
 char* str2 = "P";
 
-int thread(void *arg)
+int thread1_Main(void *arg)
 {
 	while (run_flag1 && 1) {
 		if (flag == 1) {
 			printk_color(rc_black, rc_green, (char*)arg);
-			if(!cancel_flag)
+			if(!cancel_flag2)
 				flag = 2;
-			else
+			else if(!cancel_flag1)
 				flag = 0;
 		}
 	}
@@ -130,7 +133,7 @@ int thread(void *arg)
 	return 0;
 }
 
-int thread2(void *arg)
+int thread2_Main(void *arg)
 {
 	while (run_flag2 && 1) {
 		if (flag == 2) {
@@ -141,6 +144,7 @@ int thread2(void *arg)
 	printk_color(rc_black, rc_white, "thread2 quit\n");
 	return 0;
 }
+
 void kern_init()
 {
 	init_debug();
@@ -167,26 +171,31 @@ void kern_init()
 
 	init_sched();
 
-	kernel_thread(thread, str);
-    kernel_thread(thread2, str2);
+	kernel_thread_create(thread1_Main, str);
+	kernel_thread_create(thread2_Main, str2);
 
 	// 开启中断
 	enable_intr();
-	
-    static int cnt = 0;
+
+	static int cnt = 0;
 	while (1) {
 		if(cnt == 100) {
-			printk_color(rc_black, rc_light_cyan, "100 count enough!!! quit sub thread1\n");
+			if(!cancel_flag1) {
+				printk_color(rc_black, rc_light_cyan, "100 count enough!!! quit sub thread1\n");
 
-			run_flag1 = 0;
-			break;
+				run_flag1 = 0;
+				cancel_flag1 = 1;
+				break;
+			}
 		}
 		else if(cnt == 50) {
-            printk_color(rc_black, rc_light_cyan, "50 count enough!!! quit sub thread2\n");
+			if(!cancel_flag2) {
+				printk_color(rc_black, rc_light_cyan, "50 count enough!!! quit sub thread2\n");
 
-            run_flag2 = 0;
-            cancel_flag = 1;
-		    //break;
+				run_flag2 = 0;
+				cancel_flag2 = 1;
+				//break;
+			}
         }
 
 	    if (flag == 0) {

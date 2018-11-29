@@ -17,6 +17,7 @@
  */
 
 #include "debug.h"
+#include "utils.h"
 
 static void print_stack_trace();
 
@@ -58,15 +59,35 @@ void panic(const char *msg)
 	while(1);
 }
 
+//void print_stack_trace()
+//{
+//	uint32_t *ebp, *eip;
+//
+//	asm volatile ("mov %%ebp, %0" : "=r" (ebp));
+//	printk("--------ebp	[0x%x] \n", *ebp);
+//	while (ebp) {
+//		eip = ebp + 1;
+//		printk("   [0x%x] %s\n", *eip, elf_lookup_symbol(*eip, &kernel_elf));
+//		ebp = (uint32_t*)*ebp;
+//	}
+//}
+
+
 void print_stack_trace()
 {
-	uint32_t *ebp, *eip;
+	uint32_t eip = 0;
+	uint32_t ret_code_addr = 0;
+	uint32_t ebp = 0;
 
 	asm volatile ("mov %%ebp, %0" : "=r" (ebp));
+	printk("--------ebp	[0x%x] \n", ebp);
 	while (ebp) {
-		eip = ebp + 1;
-		printk("   [0x%x] %s\n", *eip, elf_lookup_symbol(*eip, &kernel_elf));
-		ebp = (uint32_t*)*ebp;
+		eip = ebp + sizeof(uint32_t);
+		//ret_code_addr = *((uint32_t*)eip);
+		ret_code_addr = get_addr_store_val(eip);
+		printk("   [0x%x] %s\n", ret_code_addr, elf_lookup_symbol(ret_code_addr, &kernel_elf));
+		//ebp = *((uint32_t*)ebp);
+		ebp = get_addr_store_val(ebp);
 	}
 }
 
